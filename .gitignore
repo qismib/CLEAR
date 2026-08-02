@@ -1,0 +1,9 @@
+# Python/Jupyter cache
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Lab outputs
+output/
+*.npz
+*.npy

@@ -1,0 +1,171 @@
+# Sequenza calibrazione Qibocal
+
+# Sostituire nome platform, targets, ampiezze/frequenze sicure
+
+# Comando per eseguire la calibrazione:
+#   qq run qibocal/calibration_exp.yml -o output/readout_calibration
+#   qq update output/readout_calibration
+
+platform: 
+targets: [0]
+
+actions:
+  # 1. Time of flight: readout delay.
+  - id: 01_time_of_flight
+    operation: time_of_flight_readout
+    parameters:
+      readout_amplitude: 0.5
+      window_size: 10
+      detuning: 50_000_000
+      nshots: 1024
+      relaxation_time: 20_000
+
+  # 2. High-power resonator spectroscopy:
+  # trova bare resonator frequency e una prima stima della linewidth/Q.
+  - id: 02_resonator_spectroscopy_high_power
+    operation: resonator_spectroscopy
+    parameters:
+      freq_width: 60_000_000
+      freq_step: 200_000
+      amplitude: 0.6
+      power_level: high
+      fit_function: lorentzian
+      phase_sign: true
+      nshots: 1024
+      relaxation_time: 100_000
+
+  # 3. Resonator punchout:
+  
+  - id: 03_resonator_punchout
+    operation: resonator_punchout
+    parameters:
+      freq_width: 40_000_000
+      freq_step: 500_000
+      min_amp: 0.1
+      max_amp: 2.4
+      step_amp: 0.3
+      nshots: 2048
+      relaxation_time: 5_000
+
+  # 4. Resonator flux sweep:
+
+  - id: 04_resonator_flux
+    operation: resonator_flux
+    parameters:
+      bias_step: 0.01
+      bias_width: 0.4
+      freq_step: 100_000
+      freq_width: 6_000_000
+      nshots: 2000
+      relaxation_time: 1000
+
+  # 5. Qubit spectroscopy:
+  
+  - id: 05_qubit_spectroscopy
+    operation: qubit_spectroscopy
+    parameters:
+      freq_width: 200_000_000
+      freq_step: 500_000
+      drive_duration: 2_000
+      drive_amplitude: 0.01
+      hardware_average: true
+      nshots: 1024
+      relaxation_time: 100_000
+
+  # 6. Qubit flux sweep:
+  - id: 06_qubit_flux
+    operation: qubit_flux
+    parameters:
+      bias_width: 0.05
+      bias_step: 0.001
+      freq_width: 10_000_000
+      freq_step: 200_000
+      drive_amplitude: 0.002
+      drive_duration: 4000
+      nshots: 1024
+      relaxation_time: 20_000
+
+  # 7. Low-power resonator spectroscopy:
+  # da fare al bias finale scelto dagli esperimenti di flusso.
+  - id: 07_resonator_spectroscopy_low_power
+    operation: resonator_spectroscopy
+    parameters:
+      freq_width: 20_000_000
+      freq_step: 100_000
+      amplitude: 0.03
+      power_level: low
+      fit_function: s21
+      phase_sign: true
+      nshots: 1024
+      relaxation_time: 100_000
+
+  # 8. Rabi pi pulse:
+
+  - id: 08_rabi_pi_amplitude
+    operation: rabi_amplitude
+    parameters:
+      min_amp: 0.01
+      max_amp: 1.0
+      step_amp: 0.01
+      pulse_length: 40
+      rx90: false
+      nshots: 3000
+      relaxation_time: 100_000
+
+  # 9. Rabi pi/2 pulse:
+  # calibra RX90, usato nella sequenza Ramsey dopo CLEAR.
+  - id: 09_rabi_rx90_amplitude
+    operation: rabi_amplitude
+    parameters:
+      min_amp: 0.005
+      max_amp: 0.5
+      step_amp: 0.005
+      pulse_length: 40
+      rx90: true
+      nshots: 3000
+      relaxation_time: 100_000
+
+  # 10. Ramsey:
+  
+  - id: 10_ramsey
+    operation: ramsey_signal
+    parameters:
+      delay_between_pulses_start: 50
+      delay_between_pulses_end: 2000
+      delay_between_pulses_step: 50
+      detuning: 1_000_000
+      nshots: 1024
+      relaxation_time: 100_000
+
+  # 11. Dispersive shift:
+  
+  - id: 11_dispersive_shift
+    operation: dispersive_shift
+    parameters:
+      freq_width: 2_000_000
+      freq_step: 100_000
+      nshots: 4096
+      relaxation_time: 100_000
+
+  # 12. Readout optimization:
+  
+  - id: 12_readout_optimization
+    operation: resonator_optimization
+    parameters:
+      freq_width: 3_000_000
+      freq_step: 125_000
+      amplitude_min: 0.00025
+      amplitude_max: 0.0085
+      amplitude_step: 0.00025
+      delay: 1000
+      nshots: 4096
+      relaxation_time: 100_000
+
+  # 13. Single-shot classification:
+  
+  - id: 13_single_shot_classification
+    operation: single_shot_classification
+    parameters:
+      classifiers_list: ["qubit_fit", "naive_bayes"]
+      nshots: 5000
+      relaxation_time: 100_000

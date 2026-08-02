@@ -1,0 +1,39 @@
+# Parametri per la simulazione rettangolare e CLEAR.
+#
+# Unità usate nel codice:
+# - tempo in microsecondi (µs);
+# - frequenze angolari in µs^-1.
+#
+# Alcuni valori sono ispirati al paper D. T. McClure et al., Rapid Driven Reset of a Qubit Readout Resonator, Phys. Rev. Applied 5, 011001 (2016).
+# chi, detuning, kappa da sostituire dopo calibrazione
+
+# Linewidth del risonatore: κ/2π = 1.1 MHz.
+# κ = 2π * 1.1 µs^-1.->riportare 2pi* (linewith in MHz)
+kappa = 
+
+# Drive al punto medio tra le due frequenze dispersive del risonatore.
+# f_res_g = frequenza risonatore con qubit in |0>
+# f_res_e = frequenza risonatore con qubit in |1>
+
+# f_mid = (f_res_g + f_res_e)/2
+# detuning = 2*pi*(f_mid_MHz - f_drive_MHz)
+detuning = 0.0
+
+# Nel paper: 2χ/2π = -2.6 MHz, quindi |χ|/2π = 1.3 MHz.
+# chi = π * abs(f_res_e - f_res_g)
+chi = 
+
+# Il risonatore parte dal vuoto.
+alpha0_real = 0.0
+alpha0_imag = 0.0
+
+# Durata dei segmenti CLEAR di ring-up e ring-down.
+# Nel paper: t_kick = 150 ns = 0.150 µs, circa 1/κ.
+t_kick = 0.150
+
+# Durata del segmento centrale di readout.
+t_readout = 0.600
+
+# Popolazione fotonica target durante la parte di readout.
+# Nel paper le traiettorie IQ sono mostrate per P_norm = 3.6.
+n_target = 3.6
