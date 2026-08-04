@@ -1,5 +1,5 @@
 
-# Funzioni di simulazione per rettangolare vs CLEAR.
+# Simulation functions for rectangular vs CLEAR.
 
 using DifferentialEquations: ODEProblem, Tsit5, solve
 using Plots

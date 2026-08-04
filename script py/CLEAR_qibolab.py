@@ -1,8 +1,8 @@
-""" CLEAR-pulse photon-population exp, secondo:
+""" CLEAR-pulse photon-population exp, following:
     D. T. McClure et al., "Rapid Driven Reset of a Qubit Readout Resonator", Phys. Rev. Applied 5, 011001 (2016).
 
-Sequenza:
-    preparazione qubit -> CLEAR M1 -> t_relax -> Ramsey -> t_buffer -> M2.
+Sequence:
+    qubit preparation -> CLEAR M1 -> t_relax -> Ramsey -> t_buffer -> M2.
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ from qibolab import (
 
 @dataclass(frozen=True)
 class ClearPulseParameters:
-    """parametri impulso CLEAR.
-    valore assoluto ampiezze <= 1.
+    """Parameters for the CLEAR pulse.
+    Absolute value of amplitudes <= 1.
     """
 
     ringup_1: complex
@@ -56,13 +56,13 @@ class ClearPulseParameters:
 
 
 def rectangular_iq_pulse(duration: float, amplitude: complex) -> Pulse:
-    """Crea un impulso rettangolare a partire da un'ampiezza complessa."""
+    """Creates a rectangular pulse from a complex amplitude."""
 
     magnitude = abs(amplitude)
     if magnitude > 1:
         raise ValueError(
-            f"ampiezza segmento {magnitude} maggiore di 1. "
-            "Rescalare ampiezza"
+            f"segment amplitude {magnitude} greater than 1. "
+            "Rescale amplitude to be within [-1, 1] for the platform."
         )
 
     return Pulse(
@@ -74,7 +74,7 @@ def rectangular_iq_pulse(duration: float, amplitude: complex) -> Pulse:
 
 
 def clear_drive_sequence(platform, qubit: int, params: ClearPulseParameters) -> PulseSequence:
-    """Crea la sequenza di 5 impulsi rettangolari per CLEAR."""
+    """Creates the sequence of 5 rectangular pulses for CLEAR."""
 
     probe_channel = platform.qubits[qubit].probe
     sequence = PulseSequence()
@@ -88,7 +88,7 @@ def clear_drive_sequence(platform, qubit: int, params: ClearPulseParameters) -> 
 
 
 def delay_sequence(channel, duration: float) -> PulseSequence:
-    """Crea una sequenza di ritardo per un canale specifico."""
+    """Creates a delay sequence for a specific channel."""
 
     if duration <= 0:
         return PulseSequence()
@@ -104,12 +104,12 @@ def build_clear_ramsey_sequence(
     t_buffer: float = 400.0,
     prepare_excited: bool = False,
 ) -> tuple[PulseSequence, Delay, int]:
-    """Crea la sequenza per il test Ramsey-after-CLEAR.
+    """Creates the sequence for the Ramsey-after-CLEAR test.
 
-    restituisce:
-        sequenza completa di impulsi.
+    returns:
+        complete sequence of pulses.
         ramsey_delay.
-        id dell'impulso di acquisizione M2
+        id of the acquisition pulse M2
     """
 
     native = platform.natives.single_qubit[qubit]
@@ -135,7 +135,7 @@ def build_clear_ramsey_sequence(
     sequence |= PulseSequence([(drive_channel, ramsey_delay)])
     sequence |= native.RX90()
 
-    # Evita di corrompere  la misura finale con fotoni provenienti da M1/Ramsey.
+    #   Avoid corrupting the final measurement with photons coming from M1/Ramsey.
     sequence |= delay_sequence(drive_channel, t_buffer)
 
     # M2: standard square readout, already calibrated in the platform.
@@ -158,7 +158,7 @@ def run_clear_ramsey_scan(
     ramsey_detuning: float | None = 10_000_000,
     prepare_excited: bool = False,
 ) -> None:
-    """Esegue scansioni Ramsey-after-CLEAR e salva i risultati integrati."""
+    """ performs Ramsey-after-CLEAR scans and saves the integrated results."""
 
     output.mkdir(parents=True, exist_ok=True)
     t_relax_values = np.asarray(list(t_relax_values), dtype=float)
@@ -214,7 +214,7 @@ def run_clear_ramsey_scan(
 
 
 if __name__ == "__main__":
-    # sostituire valori e ampiezze di CLEAR
+    # substitute values and amplitudes of CLEAR
     PLATFORM = "YOUR_PLATFORM_NAME"
     QUBIT = 0
 

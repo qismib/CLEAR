@@ -1,8 +1,8 @@
 
-# Impulsi di readout semiclassici: rettangolare e CLEAR.
+# Simiclassical readout pulses: rectangular and CLEAR.
 
 
-#Impulso rettangolare. Restituisce A per t_start <= t < t_stop, e zero fuori dall'intervallo.
+#Rectangular pulse. Returns A for t_start <= t < t_stop, and zero outside the interval.
 
 function epsilon_rect(t; A=1.0 + 0im, t_start=0.0, t_stop=1.0)
     t_stop >= t_start || error("t_stop must be >= t_start for epsilon_rect.")
@@ -15,7 +15,7 @@ function epsilon_rect(t; A=1.0 + 0im, t_start=0.0, t_stop=1.0)
 end
 
 
-#=Ampiezza coerente stazionaria del risonatore per drive costante `A`
+#=Steady-state coherent amplitude of the resonator for constant drive `A`
 α_ss = -i A / (κ/2 + iΔ).=#
 
 function steady_state_alpha(kappa, detuning, A)
@@ -24,7 +24,7 @@ function steady_state_alpha(kappa, detuning, A)
     return -im * A / lambda
 end
 
-# Propagazione analitica con drive costante: valore iniziale alpha0, drive epsilon per tempo tau.
+# Analytical propagation with constant drive: initial value alpha0, drive epsilon for time tau.
 
 function _propagate_constant_drive(alpha0, epsilon, kappa, detuning, tau)
     tau >= 0 || error("tau must be >= 0.")
@@ -33,7 +33,7 @@ function _propagate_constant_drive(alpha0, epsilon, kappa, detuning, tau)
     return c * alpha0 - im * epsilon * (1 - c) / lambda
 end
 
-# Calcola due ampiezze costanti epsilon1, epsilon2 tali che, dopo due segmenti di durata uguale tau, due traiettorie con detuning diversi arrivino ai target.
+# Calculate two constant amplitudes epsilon1, epsilon2 such that, after two segments of equal duration tau, two trajectories with different detunings reach the targets.
 
 function _two_kick_amplitudes(kappa, detunings, alpha_initials, alpha_targets, tau)
     kappa > 0 || error("kappa must be > 0.")
@@ -61,8 +61,8 @@ function _two_kick_amplitudes(kappa, detunings, alpha_initials, alpha_targets, t
 end
 
 
-#= Calcola le quattro ampiezze dei kick CLEAR nel modello lineare del risonatore.
-Il drive di readout ha ampiezza `A`. Le due traiettorie condizionate allo stato ground/excited sono descritte dai detuning effettivi
+#= Calculate the four amplitudes of the CLEAR kicks in the linear resonator model.
+The readout drive has amplitude `A`. The two trajectories conditioned on the ground/excited state are described by the effective detunings
 
 Δ_g = detuning - chi
 Δ_e = detuning + chi =#
@@ -105,7 +105,7 @@ function clear_kick_amplitudes(; kappa, detuning=0.0, chi, A=1.0 + 0im, t_kick)
 end
 
 
-#Durata totale del CLEAR pulse:
+#Total duration of the CLEAR pulse:
 
 function duration_CLEAR(; t_kick, t_readout)
     t_kick > 0 || error("t_kick must be > 0 for duration_CLEAR.")
@@ -114,8 +114,8 @@ function duration_CLEAR(; t_kick, t_readout)
 end
 
 
-#= Impulso CLEAR a cinque segmenti
-Le ampiezze dei kick vengono calcolate dal modello lineare se `kicks=nothing`. Per evitare di ricalcolarle a ogni valutazione temporale, nel codice di simulazione conviene calcolarle una volta con `clear_kick_amplitudes` e passarle qui.=#
+#= CLEAR pulse with five segments
+The amplitudes of the kicks are calculated from the linear resonator model if `kicks=nothing`. To avoid recalculating them at each temporal evaluation, it is convenient to calculate them once with `clear_kick_amplitudes` and pass them here.=#
 
 function epsilon_CLEAR(
     t;

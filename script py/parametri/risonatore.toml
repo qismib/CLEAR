@@ -1,39 +1,55 @@
-# Parametri per la simulazione rettangolare e CLEAR.
+# Parameters for the simulation of rectangular and CLEAR pulses.
 #
-# Unità usate nel codice:
-# - tempo in microsecondi (µs);
-# - frequenze angolari in µs^-1.
+# Units used in the code:
+# - time in microseconds (μs);
+# - angular frequencies in μs^-1.
 #
-# Alcuni valori sono ispirati al paper D. T. McClure et al., Rapid Driven Reset of a Qubit Readout Resonator, Phys. Rev. Applied 5, 011001 (2016).
-# chi, detuning, kappa da sostituire dopo calibrazione
+# Some values are inspired by:
+# D. T. McClure et al., "Rapid Driven Reset of a Qubit Readout Resonator,"
+# Physical Review Applied 5, 011001 (2016).
+#
+# Other parameters must be replaced with the values obtained from the calibration measurements.
 
-# Linewidth del risonatore: κ/2π = 1.1 MHz.
-# κ = 2π * 1.1 µs^-1.->riportare 2pi* (linewith in MHz)
-kappa = 
 
-# Drive al punto medio tra le due frequenze dispersive del risonatore.
-# f_res_g = frequenza risonatore con qubit in |0>
-# f_res_e = frequenza risonatore con qubit in |1>
+# Resonator linewidth: κ/2π = 1.1 MHz.
+# κ = 2π × 1.1 μs^-1.
+# Enter 2π × (linewidth in MHz).
+kappa =
 
-# f_mid = (f_res_g + f_res_e)/2
-# detuning = 2*pi*(f_mid_MHz - f_drive_MHz)
-detuning = 0.0
 
-# Nel paper: 2χ/2π = -2.6 MHz, quindi |χ|/2π = 1.3 MHz.
-# chi = π * abs(f_res_e - f_res_g)
-chi = 
+# Drive frequency chosen at the midpoint between the two
+# qubit-state-dependent resonator frequencies.
+#
+# f_res_g = resonator frequency with the qubit in |0⟩
+# f_res_e = resonator frequency with the qubit in |1⟩
+#
+# f_mid = (f_res_g + f_res_e) / 2
+# detuning = 2π × (f_mid_MHz - f_drive_MHz)
 
-# Il risonatore parte dal vuoto.
+# State-dependent resonator frequencies obtained from
+# the Qibocal dispersive_shift experiment.
+f_res_g_MHz = 
+f_res_e_MHz = 
+
+# Final readout frequency selected by resonator_optimization.
+f_drive_MHz = 
+
+# Digital readout amplitude selected by resonator_optimization.
+A_readout = 
+
+
+# The resonator is initially in the vacuum state.
 alpha0_real = 0.0
 alpha0_imag = 0.0
 
-# Durata dei segmenti CLEAR di ring-up e ring-down.
-# Nel paper: t_kick = 150 ns = 0.150 µs, circa 1/κ.
+
+# Duration of the CLEAR ring-up and ring-down segments.
+# In the paper: t_kick = 150 ns = 0.150 μs, approximately 1/κ.
 t_kick = 0.150
 
-# Durata del segmento centrale di readout.
+
+# Duration of the central readout segment.
 t_readout = 0.600
 
-# Popolazione fotonica target durante la parte di readout.
-# Nel paper le traiettorie IQ sono mostrate per P_norm = 3.6.
-n_target = 3.6
+
+
