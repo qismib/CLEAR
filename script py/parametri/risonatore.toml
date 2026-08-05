@@ -14,7 +14,9 @@
 # Resonator linewidth: κ/2π = 1.1 MHz.
 # κ = 2π × 1.1 μs^-1.
 # Enter 2π × (linewidth in MHz).
-kappa =
+# ESEMPIO (non da calibrazione): κ/2π = 1.1 MHz -> κ = 2π × 1.1.
+# Sostituire con il valore misurato prima di un uso reale.
+kappa = 0.7
 
 
 # Drive frequency chosen at the midpoint between the two
@@ -28,14 +30,24 @@ kappa =
 
 # State-dependent resonator frequencies obtained from
 # the Qibocal dispersive_shift experiment.
-f_res_g_MHz = 
-f_res_e_MHz = 
+# ESEMPIO (non da calibrazione): scelte solo per ottenere χ/2π = 0.5 MHz
+# (χ = π × (f_res_e_MHz - f_res_g_MHz)), come usato per generare Fig. 3(c).
+# Sostituire con i valori misurati con dispersive_shift.
+f_res_g_MHz = 7269.555
+f_res_e_MHz = 7267.185
 
 # Final readout frequency selected by resonator_optimization.
-f_drive_MHz = 
+# ESEMPIO (non da calibrazione): f_drive = f_mid, per avere detuning = 0.
+# Sostituire con il valore scelto da resonator_optimization.
+f_drive_MHz = 7268.37
 
 # Digital readout amplitude selected by resonator_optimization.
-A_readout = 
+# ESEMPIO (non da calibrazione, unità arbitrarie): valore segnaposto usato
+# per verificare che i rapporti kick/A_readout non dipendano da A_readout.
+# Sostituire con il valore scelto da resonator_optimization.
+# n_target di prova (placeholder), solo per verificare che l'intera pipeline
+# (fit di k -> A_readout -> ampiezze CLEAR) funzioni end-to-end.
+n_target = 2.0
 
 
 # The resonator is initially in the vacuum state.
@@ -45,11 +57,11 @@ alpha0_imag = 0.0
 
 # Duration of the CLEAR ring-up and ring-down segments.
 # In the paper: t_kick = 150 ns = 0.150 μs, approximately 1/κ.
-t_kick = 0.150
+t_kick = 0.240
 
 
 # Duration of the central readout segment.
-t_readout = 0.600
+t_readout = 2.0
 
 
 

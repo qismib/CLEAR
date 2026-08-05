@@ -1,17 +1,33 @@
 """ CLEAR-pulse photon-population exp, following:
     D. T. McClure et al., "Rapid Driven Reset of a Qubit Readout Resonator", Phys. Rev. Applied 5, 011001 (2016).
 
-Sequence:
-    qubit preparation -> CLEAR M1 -> t_relax -> Ramsey -> t_buffer -> M2.
+Sequence (Fig. 1(b) of the paper):
+    qubit preparation -> M1 -> t_relax -> Ramsey (RX90 - t_R - RX90) -> t_buffer -> M2.
+
+M1 is built by `clear_drive_sequence`:
+    - rectangular=False (default): the full 5-segment CLEAR pulse of
+      Fig. 1(a) (ring-up x2, steady-state readout, ring-down x2).
+    - rectangular=True: only the steady-state segment is kept, i.e. a plain
+      square pulse of duration `t_steady` and amplitude `steady` -- the
+      paper's square-pulse baseline used for comparison in Figs. 2(b)/2(c)
+      and 3(c). The rest of the sequence (preparation, t_relax, Ramsey,
+      t_buffer, M2) is identical in both cases, so switching `rectangular`
+      reproduces the same experiment with the two different M1 pulse
+      shapes compared in the paper, with parameters that can differ from
+      the ones used there (kappa, chi, powers, etc., set via
+      parametri/risonatore.toml and the calibration constants below).
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+import matplotlib.pyplot as plt
 import numpy as np
+from scipy.optimize import curve_fit
 
 from qibolab import (
     AcquisitionType,
@@ -25,6 +41,91 @@ from qibolab import (
     create_platform,
 )
 
+DATA_FOLDER = "../qibocal/data/clear_test"
+
+# ---------------------------------------------------------------------------
+# Paths to the calibration files produced by stark_analysis.py and used by
+# amplitudes_CLEAR.ipynb (see its Section 1 "Parameters" and Section 6
+# "Esportazione dei parametri CLEAR per qibolab"):
+#   - data/stark_fit_results.json  -> {"k": ..., "q": ...}, saved by
+#     stark_analysis.py as `FOLDER + "stark_fit_results.json"`, with
+#     FOLDER = "data/" *relative to the directory stark_analysis.py is run
+#     from*. stark_analysis.py and CLEAR_qibolab.py live in the same
+#     directory (e.g. ".../CLEAR/script py/"), so here we mirror that same
+#     convention: "data/" relative to this script's own directory.
+#   - parametri/risonatore.toml    -> resonator/pulse parameters, incl.
+#     n_target (Section 1 of amplitudes_CLEAR.ipynb).
+# If your local layout differs (e.g. "data/" or "parametri/" live one level
+# up, next to "script py/" rather than inside it), adjust PROJECT_DIR below
+# accordingly (e.g. `.parent.parent` instead of `.parent`).
+# ---------------------------------------------------------------------------
+
+PROJECT_DIR = Path(__file__).resolve().parent
+RESONATOR_TOML_PATH = PROJECT_DIR / "parametri" / "risonatore.toml"
+STARK_FIT_JSON_PATH = PROJECT_DIR / "data" / "stark_fit_results.json"
+
+
+def _parse_simple_toml(toml_path: Path) -> dict:
+    """Minimal fallback parser for flat `key = value` TOML files (no
+    tables/sections), used only if neither `tomllib` (Python >= 3.11) nor
+    `tomli` (`pip install tomli`) is available. Sufficient for
+    parametri/risonatore.toml, which has no nested tables.
+    """
+
+    result: dict = {}
+    with open(toml_path, encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.split("#", 1)[0].strip()
+            if not line or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+            if not value:
+                raise ValueError(
+                    f"Empty value for key {key!r} in {toml_path} "
+                    "(fallback TOML parser cannot handle this; either fill "
+                    "in a value or install tomli: `pip install tomli`)."
+                )
+            if (value.startswith('"') and value.endswith('"')) or (
+                value.startswith("'") and value.endswith("'")
+            ):
+                result[key] = value[1:-1]
+            elif value.lower() in ("true", "false"):
+                result[key] = value.lower() == "true"
+            else:
+                try:
+                    result[key] = int(value)
+                except ValueError:
+                    result[key] = float(value)
+    return result
+
+
+def load_resonator_toml(toml_path: Path = RESONATOR_TOML_PATH) -> dict:
+    """Loads parametri/risonatore.toml (same file used by
+    amplitudes_CLEAR.ipynb via TOML.parsefile)."""
+
+    try:
+        import tomllib  # Python >= 3.11
+    except ModuleNotFoundError:
+        try:
+            import tomli as tomllib  # requires `pip install tomli`
+        except ModuleNotFoundError:
+            return _parse_simple_toml(toml_path)
+
+    with open(toml_path, "rb") as f:
+        return tomllib.load(f)
+
+
+def load_stark_fit_k(json_path: Path = STARK_FIT_JSON_PATH) -> float:
+    """Loads the k coefficient (angular coefficient of the linear fit
+    n_photons = k * amp^2 + q) produced and saved by stark_analysis.py, so
+    that it is not re-typed by hand and always matches the latest Stark
+    shift calibration."""
+
+    with open(json_path) as f:
+        data = json.load(f)
+    return float(data["k"])
 
 @dataclass(frozen=True)
 class ClearPulseParameters:
@@ -73,17 +174,32 @@ def rectangular_iq_pulse(duration: float, amplitude: complex) -> Pulse:
     )
 
 
-def clear_drive_sequence(platform, qubit: int, params: ClearPulseParameters) -> PulseSequence:
-    """Creates the sequence of 5 rectangular pulses for CLEAR."""
+def clear_drive_sequence(platform, qubit: int, params: ClearPulseParameters, rectangular=False) -> PulseSequence:
+    """Creates the M1 measurement/reset drive sequence.
+
+    If `rectangular` is False (default), builds the full 5-segment CLEAR
+    pulse (two ring-up kicks, the steady-state readout segment, two
+    ring-down kicks), exactly as in Fig. 1(a) of McClure et al. (2016).
+
+    If `rectangular` is True, only the steady-state segment (index 2, the
+    central readout amplitude) is emitted, i.e. a plain rectangular/square
+    M1 pulse of duration `params.t_steady` and amplitude `params.steady` is
+    used instead of CLEAR -- this reproduces the paper's "square pulse"
+    baseline (Figs. 2 and 3), driven with the same overall Ramsey-after-M1
+    sequence structure as the CLEAR case (see build_clear_ramsey_sequence).
+    """
 
     probe_channel = platform.qubits[qubit].probe
     sequence = PulseSequence()
-
+    segment_idx = 0
     for duration, amplitude in zip(params.durations, params.amplitudes):
         if duration <= 0:
             continue
-        sequence.append((probe_channel, rectangular_iq_pulse(duration, amplitude)))
-
+        if not rectangular:
+            sequence.append((probe_channel, rectangular_iq_pulse(duration, amplitude)))
+        elif segment_idx == 2:
+            sequence.append((probe_channel, rectangular_iq_pulse(duration, amplitude)))
+        segment_idx += 1
     return sequence
 
 
@@ -103,6 +219,7 @@ def build_clear_ramsey_sequence(
     t_ramsey: float,
     t_buffer: float = 400.0,
     prepare_excited: bool = False,
+    rectangular : bool = False
 ) -> tuple[PulseSequence, Delay, int]:
     """Creates the sequence for the Ramsey-after-CLEAR test.
 
@@ -123,8 +240,7 @@ def build_clear_ramsey_sequence(
         sequence |= native.RX()
 
     # M1: CLEAR measurement/reset drive.
-    
-    sequence |= clear_drive_sequence(platform, qubit, clear)
+    sequence |= clear_drive_sequence(platform, qubit, clear, rectangular=rectangular)
 
     # Wait after M1 before probing residual photons with Ramsey.
     sequence |= delay_sequence(probe_channel, t_relax)
@@ -157,6 +273,7 @@ def run_clear_ramsey_scan(
     relaxation_time: float = 100_000,
     ramsey_detuning: float | None = 10_000_000,
     prepare_excited: bool = False,
+    rectangular: bool = False
 ) -> None:
     """ performs Ramsey-after-CLEAR scans and saves the integrated results."""
 
@@ -182,6 +299,7 @@ def run_clear_ramsey_scan(
                 t_relax=float(t_relax),
                 t_ramsey=float(t_ramsey_values[0]),
                 prepare_excited=prepare_excited,
+                rectangular=rectangular
             )
 
             sweeper = Sweeper(
@@ -213,16 +331,261 @@ def run_clear_ramsey_scan(
     )
 
 
+# ---------------------------------------------------------------------------
+# Ramsey trace analysis: Eq. (1) model, fit and Fig. 2(a)-style plot.
+#
+# Eq. (1) of McClure et al. (2016):
+#   S(t_R) = 1/2 [1 - Im{exp[-(Gamma2 + i*Delta)*t_R + i*(phi0 - 2*n0*chi*tau)]}]
+#   tau(t_R) = (1 - exp(-(kappa + 2i*chi)*t_R)) / (kappa + 2i*chi)
+#
+# Delta = Ramsey detuning, Gamma2 = 1/T2_echo, phi0 = initial phase,
+# n0 = cavity population at the start of the Ramsey delay.
+# kappa, chi, Delta, Gamma2 are kept fixed; the only free fit parameters
+# are n0 and phi0, as in the paper.
+#
+# This script uses nanoseconds (consistent with `t_kick`, `t_ramsey_values`,
+# etc. above), so kappa/chi/Delta/Gamma2 are expected in rad/ns.
+# ---------------------------------------------------------------------------
+
+
+def mhz_to_rad_per_ns(f_mhz: float) -> float:
+    """Converts a frequency in MHz to an angular frequency in rad/ns."""
+    return 2 * np.pi * f_mhz * 1e-3
+
+
+def ramsey_tau(t_r: np.ndarray, kappa: float, chi: float) -> np.ndarray:
+    """tau(t_R), as defined below Eq. (1). kappa, chi in rad/ns, t_r in ns."""
+    lam = kappa + 2j * chi
+    return (1 - np.exp(-lam * t_r)) / lam
+
+
+def ramsey_signal(
+    t_r: np.ndarray,
+    n0: float,
+    phi0: float,
+    kappa: float,
+    chi: float,
+    detuning: float,
+    gamma2: float,
+) -> np.ndarray:
+    """Eq. (1): normalized Ramsey amplitude S(t_R).
+
+    kappa, chi, detuning, gamma2 in rad/ns; t_r in ns.
+    """
+    tau = ramsey_tau(np.asarray(t_r, dtype=float), kappa, chi)
+    expo = -(gamma2 + 1j * detuning) * t_r + 1j * (phi0 - 2 * n0 * chi * tau)
+    return 0.5 * (1 - np.imag(np.exp(expo)))
+
+
+def fit_ramsey_eq1(
+    t_r: np.ndarray,
+    amplitude: np.ndarray,
+    kappa: float,
+    chi: float,
+    detuning: float,
+    gamma2: float,
+    p0: tuple[float, float] = (0.5, 0.0),
+) -> dict:
+    """Fits n0 and phi0 of Eq. (1) to a measured (or simulated) Ramsey trace.
+
+    kappa, chi, detuning and gamma2 are held fixed, as in the paper
+    ("the only free parameters are n0 and phi0").
+    """
+
+    def model(t_r, n0, phi0):
+        return ramsey_signal(t_r, n0, phi0, kappa, chi, detuning, gamma2)
+
+    popt, pcov = curve_fit(model, t_r, amplitude, p0=p0)
+    perr = np.sqrt(np.diag(pcov))
+    return {
+        "n0": float(popt[0]),
+        "phi0": float(popt[1]),
+        "n0_err": float(perr[0]),
+        "phi0_err": float(perr[1]),
+        "popt": popt,
+        "pcov": pcov,
+    }
+
+
+def normalized_amplitude(iq: np.ndarray) -> np.ndarray:
+    """Averages single-shot IQ points over shots and rescales the resulting
+    trace to [0, 1], to match the 'Normalized amplitude' of Fig. 2(a).
+
+    `iq` is expected to have shape (nshots, len(t_ramsey)) with a complex
+    dtype, as returned for a single t_relax by `run_clear_ramsey_scan`
+    (AveragingMode.SINGLESHOT). Some qibolab versions instead save the I/Q
+    components as a real array of shape (nshots, len(t_ramsey), 2); that
+    case is converted to a complex (nshots, len(t_ramsey)) array first.
+    """
+
+    iq = np.asarray(iq)
+
+    if not np.iscomplexobj(iq) and iq.ndim == 3 and iq.shape[-1] == 2:
+        # (nshots, len(t_ramsey), 2) -> complex (nshots, len(t_ramsey))
+        iq = iq[..., 0] + 1j * iq[..., 1]
+
+    trace = np.real(iq) if np.iscomplexobj(iq) else iq
+
+    if trace.ndim != 2:
+        raise ValueError(
+            f"normalized_amplitude expected a 2D (nshots, len(t_ramsey)) "
+            f"array after IQ handling, got shape {trace.shape}. Check the "
+            "shape of the raw data saved by run_clear_ramsey_scan."
+        )
+
+    trace = np.mean(trace, axis=0)
+    trace = trace - trace.min()
+    if trace.max() > 0:
+        trace = trace / trace.max()
+    return trace
+
+
+def load_ramsey_trace(
+    npz_path: Path, t_relax: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Loads a Ramsey-after-CLEAR trace saved by `run_clear_ramsey_scan`, for
+    a given t_relax, and returns (t_ramsey, normalized_amplitude)."""
+
+    data = np.load(npz_path)
+    t_ramsey = data["t_ramsey"]
+    key = f"t_relax_{t_relax:g}"
+    amplitude = normalized_amplitude(data[key])
+    return t_ramsey, amplitude
+
+
+def plot_ramsey_fig2a(
+    t_r_data: np.ndarray,
+    amplitude_data: np.ndarray,
+    fit_result: dict,
+    kappa: float,
+    chi: float,
+    detuning: float,
+    gamma2: float,
+    title: str = "Fig. 2(a): Ramsey experiment and fit",
+    output_path: Path | None = None,
+):
+    """Reproduces the style of Fig. 2(a): red circles for the data, solid
+    black curve for the Eq. (1) fit."""
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+
+    ax.scatter(t_r_data, amplitude_data, color="red", s=20, label="Data")
+
+    t_r_fit = np.linspace(t_r_data.min(), t_r_data.max(), 400)
+    s_fit = ramsey_signal(
+        t_r_fit, fit_result["n0"], fit_result["phi0"], kappa, chi, detuning, gamma2
+    )
+    ax.plot(t_r_fit, s_fit, color="black", linewidth=2, label="Fit of Eq. (1)")
+
+    ax.set_xlabel(r"Ramsey delay $t_R$ (ns)")
+    ax.set_ylabel("Normalized amplitude")
+    ax.set_ylim(0.0, 1.0)
+    ax.set_title(title)
+    ax.legend(loc="upper right")
+    fig.tight_layout()
+
+    if output_path is not None:
+        fig.savefig(output_path, dpi=200)
+
+    return fig, ax
+
+
+def analyze_ramsey_fig2a(
+    npz_path: Path,
+    t_relax: float,
+    kappa_mhz: float,
+    chi_mhz: float,
+    ramsey_detuning_mhz: float,
+    t2_echo_ns: float,
+    output_path: Path | None = None,
+) -> dict:
+    """End-to-end analysis: loads a saved Ramsey-after-CLEAR trace, fits
+    Eq. (1) to extract n0 and phi0, plots the Fig. 2(a)-style figure, and
+    returns the fit result (including n0).
+    """
+
+    kappa = mhz_to_rad_per_ns(kappa_mhz)
+    chi = mhz_to_rad_per_ns(chi_mhz)
+    detuning = mhz_to_rad_per_ns(ramsey_detuning_mhz)
+    gamma2 = 1.0 / t2_echo_ns
+
+    t_r_data, amplitude_data = load_ramsey_trace(npz_path, t_relax)
+
+    fit_result = fit_ramsey_eq1(
+        t_r_data, amplitude_data, kappa, chi, detuning, gamma2
+    )
+
+    plot_ramsey_fig2a(
+        t_r_data, amplitude_data, fit_result, kappa, chi, detuning, gamma2,
+        output_path=output_path,
+    )
+
+    print(f"n0   = {fit_result['n0']:.4f} +/- {fit_result['n0_err']:.4f}")
+    print(f"phi0 = {fit_result['phi0']:.4f} +/- {fit_result['phi0_err']:.4f}")
+
+    return fit_result
+
+
+def _demo_synthetic_fit(output_path: Path | None = None) -> dict:
+    """Demonstrates the Fig. 2(a) plot and Eq. (1) fit with synthetic data,
+    for use before real hardware data (clear_ramsey_*.npz) is available.
+
+    Synthetic single-shot data is generated from Eq. (1) itself for known
+    "true" n0, phi0, plus shot noise, then fitted back -- exactly the
+    pipeline `analyze_ramsey_fig2a` runs on real data via `load_ramsey_trace`.
+    """
+
+    kappa = mhz_to_rad_per_ns(1.1)          # resonator linewidth, kappa/2pi = 1.1 MHz
+    chi = mhz_to_rad_per_ns(0.5)            # dispersive shift, chi/2pi = 0.5 MHz (example)
+    detuning = mhz_to_rad_per_ns(10.0)      # Ramsey detuning, 10 MHz (as in the paper)
+    gamma2 = 1.0 / 10_000.0                 # 1/T2_echo, T2_echo = 10 us = 10000 ns (example)
+
+    n0_true, phi0_true = 0.9, 0.3
+    t_r_data = np.arange(0.0, 600.0 + 1.0, 8.0)  # ns, as in run_clear_ramsey_scan
+
+    rng = np.random.default_rng(0)
+    amplitude_data = ramsey_signal(
+        t_r_data, n0_true, phi0_true, kappa, chi, detuning, gamma2
+    ) + 0.03 * rng.standard_normal(t_r_data.size)
+
+    fit_result = fit_ramsey_eq1(t_r_data, amplitude_data, kappa, chi, detuning, gamma2)
+
+    plot_ramsey_fig2a(
+        t_r_data, amplitude_data, fit_result, kappa, chi, detuning, gamma2,
+        title="Fig. 2(a): Ramsey experiment and fit (synthetic demo data)",
+        output_path=output_path,
+    )
+
+    print("Demo con dati sintetici (nessun dato sperimentale ancora disponibile):")
+    print(f"n0_true  = {n0_true}, phi0_true = {phi0_true}")
+    print(f"n0_fit   = {fit_result['n0']:.4f} +/- {fit_result['n0_err']:.4f}")
+    print(f"phi0_fit = {fit_result['phi0']:.4f} +/- {fit_result['phi0_err']:.4f}")
+
+    return fit_result
+
+
 if __name__ == "__main__":
     # substitute values and amplitudes of CLEAR
-    PLATFORM = "YOUR_PLATFORM_NAME"
+    PLATFORM = "sqps_thesis"
     QUBIT = 0
 
-   
+    # n_target: dal file di calibrazione parametri/risonatore.toml (lo
+    # stesso letto in Sezione 1 di amplitudes_CLEAR.ipynb).
+    resonator_params = load_resonator_toml()
+    n_target = resonator_params["n_target"]
+
+    # k: coefficiente angolare del fit lineare n_photons = k*amp^2 + q,
+    # prodotto da stark_analysis.py e salvato in data/stark_fit_results.json
+    # -- stessa quantita' letta in Sezione 1 del notebook, cosi' che
+    # A_readout usi sempre l'ultima calibrazione di Stark shift.
+    k = 5.194e4#load_stark_fit_k()
+
+    A_readout = float(np.sqrt(n_target / k))
+
     clear_parameters = ClearPulseParameters(
         ringup_1=0.10 + 0.0j,
         ringup_2=0.08 + 0.0j,
-        steady=0.05 + 0.0j,
+        steady=A_readout + 0.0j,
         ringdown_1=-0.08 + 0.0j,
         ringdown_2=-0.10 + 0.0j,
         t_kick=150.0,
@@ -233,11 +596,33 @@ if __name__ == "__main__":
         platform_name=PLATFORM,
         qubit=QUBIT,
         clear=clear_parameters,
-        t_relax_values=np.array([0.0, 40.0, 80.0, 160.0, 320.0]),
+        t_relax_values=np.array([100]),
         t_ramsey_values=np.arange(0.0, 600.0 + 1.0, 8.0),
-        output=Path("output/clear_test/q0"),
+        output=Path(DATA_FOLDER + ""),
         nshots=1024,
         relaxation_time=100_000,
         ramsey_detuning=10_000_000,
         prepare_excited=False,
+        rectangular=True
     )
+
+    # --- Fig. 2(a): Ramsey trace and Eq. (1) fit, extracting n0 ---------
+    # Substitute kappa_mhz, chi_mhz and t2_echo_ns with the values from your
+    # calibration once available.
+    npz_path = Path(DATA_FOLDER + "/clear_ramsey_ground.npz")
+    if npz_path.exists():
+        analyze_ramsey_fig2a(
+            npz_path=npz_path,
+            t_relax=0.0,
+            kappa_mhz=10.7,
+            chi_mhz=0.5,
+            ramsey_detuning_mhz=10.0,
+            t2_echo_ns=10_000.0,
+            output_path=Path(DATA_FOLDER + "/fig2a_ramsey_fit.png"),
+        )
+    else:
+        # No experimental data saved yet: run the pipeline on synthetic data
+        # to illustrate the plot and the fit.
+        _demo_synthetic_fit(
+            output_path=Path(DATA_FOLDER + "/fig2a_ramsey_fit_demo.png")
+        )
