@@ -835,7 +835,25 @@ if __name__ == "__main__":
                         "-",
                         label=f"{key} fit, tau={popt[2]:.1f} ns",
                     )
-                    print(f"{key}: tau = {popt[2]:.3f} ns")
+                    # Extract tau and its uncertainty from the covariance matrix
+                    tau = float(popt[2])
+                    try:
+                        tau_err = float(np.sqrt(np.diag(pcov))[2])
+                    except Exception:
+                        tau_err = float('nan')
+
+                    # k = 1 / tau, propagate uncertainty: dk = dtau / tau^2
+                    k_val = 1.0 / tau if tau != 0 else float('inf')
+                    k_err = (tau_err / (tau * tau)) if (tau_err == tau_err and tau != 0) else float('nan')
+
+                    print(f"{key}: tau = {tau:.3f} +/- {tau_err:.3f} ns, k = {k_val:.6e} +/- {k_err:.6e} 1/ns")
+
+                    # store results in res if present
+                    if key in res:
+                        res[key]["tau"] = tau
+                        res[key]["tau_err"] = tau_err
+                        res[key]["k"] = k_val
+                        res[key]["k_err"] = k_err
                 except (RuntimeError, ValueError) as exc:
                     print(f"{key}: fit n0(t_relax) non riuscito: {exc}")
     plt.legend()
