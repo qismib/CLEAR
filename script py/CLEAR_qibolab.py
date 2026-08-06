@@ -83,6 +83,7 @@ DATA_FOLDER = "../qibocal/data/clear_test"
 PROJECT_DIR = Path(__file__).resolve().parent
 RESONATOR_TOML_PATH = PROJECT_DIR / "parametri" / "risonatore.toml"
 STARK_FIT_JSON_PATH = PROJECT_DIR / "data" / "stark_fit_results.json"
+CLEAR_AMPLITUDES_JSON_PATH = PROJECT_DIR / "parametri" / "clear_amplitudes.json"
  
  
 def _parse_simple_toml(toml_path: Path) -> dict:
@@ -146,8 +147,28 @@ def load_stark_fit_k(json_path: Path = STARK_FIT_JSON_PATH) -> float:
     with open(json_path) as f:
         data = json.load(f)
     return float(data["k"])
- 
- 
+
+
+def load_clear_segment_amplitudes(
+    readout_amplitude: complex,
+    json_path: Path = CLEAR_AMPLITUDES_JSON_PATH,
+) -> dict[str, complex]:
+    """Load CLEAR segment amplitudes exported by amplitudes_CLEAR.ipynb.
+
+    The JSON stores each segment as a ratio with respect to the steady
+    readout amplitude; here the ratios are scaled by `readout_amplitude`.
+    """
+
+    with open(json_path) as f:
+        data = json.load(f)
+
+    ratios = data["ratios"]
+    return {
+        name: complex(*ratios[name]) * readout_amplitude
+        for name in ("ringup_1", "ringup_2", "steady", "ringdown_1", "ringdown_2")
+    }
+
+
 @dataclass(frozen=True)
 class ClearPulseParameters:
     """Parameters for the CLEAR pulse.
@@ -710,13 +731,14 @@ if __name__ == "__main__":
     k = 3.49e4  # load_stark_fit_k()
 
     A_readout = float(np.sqrt(n_target / k))
+    clear_amplitudes = load_clear_segment_amplitudes(A_readout + 0.0j)
 
     clear_parameters = ClearPulseParameters(
-        ringup_1=0.10 + 0.0j,
-        ringup_2=0.08 + 0.0j,
-        steady=A_readout + 0.0j,
-        ringdown_1=-0.08 + 0.0j,
-        ringdown_2=-0.10 + 0.0j,
+        ringup_1=clear_amplitudes["ringup_1"],
+        ringup_2=clear_amplitudes["ringup_2"],
+        steady=clear_amplitudes["steady"],
+        ringdown_1=clear_amplitudes["ringdown_1"],
+        ringdown_2=clear_amplitudes["ringdown_2"],
         t_kick=150.0,
         t_steady=3000.0,
     )
@@ -774,10 +796,48 @@ if __name__ == "__main__":
             _demo_synthetic_fit(
                 output_path=Path(DATA_FOLDER + "/fig2a_ramsey_fit_demo.png")
             )
+    def decay_model(t, offset, amplitude, tau):
+        return offset + amplitude * np.exp(-np.asarray(t, dtype=float) / tau)
+
     plt.figure()
     for key in ["g", "e"]:
         if key in res:
-            plt.errorbar(res[key]["t"], res[key]["n0"], res[key]["n0_err"], marker="o", label=key)
+            t_data = np.asarray(res[key]["t"], dtype=float)
+            n0_data = np.asarray(res[key]["n0"], dtype=float)
+            n0_err_data = np.asarray(res[key]["n0_err"], dtype=float)
+
+            plt.errorbar(t_data, n0_data, n0_err_data, marker="o", label=key)
+
+            mask = np.isfinite(t_data) & np.isfinite(n0_data)
+            if np.count_nonzero(mask) >= 3:
+                p0 = (
+                    float(n0_data[mask][-1]),
+                    float(n0_data[mask][0] - n0_data[mask][-1]),
+                    max(float(t_data[mask][-1] - t_data[mask][0]), 1.0),
+                )
+                sigma = n0_err_data[mask]
+                sigma = np.where(sigma > 0, sigma, 1.0)
+
+                try:
+                    popt, pcov = curve_fit(
+                        decay_model,
+                        t_data[mask],
+                        n0_data[mask],
+                        p0=p0,
+                        sigma=sigma,
+                        bounds=([-np.inf, -np.inf, 1e-9], [np.inf, np.inf, np.inf]),
+                        maxfev=10_000,
+                    )
+                    t_fit = np.linspace(t_data[mask].min(), t_data[mask].max(), 400)
+                    plt.plot(
+                        t_fit,
+                        decay_model(t_fit, *popt),
+                        "-",
+                        label=f"{key} fit, tau={popt[2]:.1f} ns",
+                    )
+                    print(f"{key}: tau = {popt[2]:.3f} ns")
+                except (RuntimeError, ValueError) as exc:
+                    print(f"{key}: fit n0(t_relax) non riuscito: {exc}")
     plt.legend()
     plt.grid()
     plt.savefig("test_decay.png")
