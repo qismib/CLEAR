@@ -1,67 +1,86 @@
-# Parameters for the simulation of rectangular and CLEAR pulses.
+# Single hardcode location for the CLEAR experiment.
 #
-# Units used in the code:
-# - time in microseconds (μs);
-# - angular frequencies in μs^-1.
+# Read by:
+#   - amplitudes_CLEAR.ipynb / simulazione.jl  (Julia model; times in us,
+#     angular frequencies in us^-1)
+#   - clear_config.py -> SETUP  (Python; everything else derives from here)
 #
-# Some values are inspired by:
-# D. T. McClure et al., "Rapid Driven Reset of a Qubit Readout Resonator,"
-# Physical Review Applied 5, 011001 (2016).
-#
-# Other parameters must be replaced with the values obtained from the calibration measurements.
+# Nothing in the Python scripts should redefine any of these values.
 
 
-# Resonator linewidth: κ/2π = 1.1 MHz.
-# κ = 2π × 1.1 μs^-1.
-# Enter 2π × (linewidth in MHz).
-# ESEMPIO (non da calibrazione): κ/2π = 1.1 MHz -> κ = 2π × 1.1.
-# Sostituire con il valore misurato prima di un uso reale.
-kappa = 0.7
+# --- Resonator -------------------------------------------------------------
+
+# Resonator linewidth: enter 2*pi*(linewidth in MHz), i.e. kappa/2pi in MHz.
+# From resonator spectroscopy with the qubit in |0>. Do NOT use a separately
+# fitted "excited-state kappa": kappa is a property of the resonator, and an
+# apparently larger kappa on the excited trace is a mixture of the two
+# overlapping Lorentzians caused by T1 decay and preparation error, not a
+# physical difference. Refit that trace with two Lorentzians sharing this
+# kappa if you want the preparation fidelity out of it.
+kappa = 1
+
+# State-dependent resonator frequencies, from the Qibocal dispersive_shift
+# experiment. chi/2pi = |f_res_g - f_res_e| / 2 is derived, not entered.
+f_res_g_MHz = 7583.8004
+f_res_e_MHz = 7582.509
+
+# Probe frequency. This MUST be the midpoint (f_res_g + f_res_e)/2 = 7583.015918:
+# only there is the steady-state photon number the same for the two qubit
+# states, which is what lets a single Stark calibration serve both. With
+# kappa/2pi = 0.747 and chi/2pi = 0.534 MHz, being 134 kHz off the midpoint
+# already makes n_g/n_e differ by roughly a factor of 2.
+# clear_config warns if this disagrees with the computed midpoint.
+f_drive_MHz = 7583.1547
 
 
-# Drive frequency chosen at the midpoint between the two
-# qubit-state-dependent resonator frequencies.
-#
-# f_res_g = resonator frequency with the qubit in |0⟩
-# f_res_e = resonator frequency with the qubit in |1⟩
-#
-# f_mid = (f_res_g + f_res_e) / 2
-# detuning = 2π × (f_mid_MHz - f_drive_MHz)
+# --- Qubit coherence -------------------------------------------------------
 
-# State-dependent resonator frequencies obtained from
-# the Qibocal dispersive_shift experiment.
-# ESEMPIO (non da calibrazione): scelte solo per ottenere χ/2π = 0.5 MHz
-# (χ = π × (f_res_e_MHz - f_res_g_MHz)), come usato per generare Fig. 3(c).
-# Sostituire con i valori misurati con dispersive_shift.
-f_res_g_MHz = 7269.555
-f_res_e_MHz = 7267.185
+# Relaxation time. Used for the excited-state loss correction when the
+# measured excited fraction is unavailable. M1 lasts a good fraction of this,
+# so the correction is not a small effect.
+t1_us = 8.2
 
-# Final readout frequency selected by resonator_optimization.
-# ESEMPIO (non da calibrazione): f_drive = f_mid, per avere detuning = 0.
-# Sostituire con il valore scelto da resonator_optimization.
-f_drive_MHz = 7268.37
+# Echo coherence time -> Gamma2 = 1/T2_echo in Eq. (1).
+t2_echo_us = 15.0
 
-# Digital readout amplitude selected by resonator_optimization.
-# ESEMPIO (non da calibrazione, unità arbitrarie): valore segnaposto usato
-# per verificare che i rapporti kick/A_readout non dipendano da A_readout.
-# Sostituire con il valore scelto da resonator_optimization.
-# n_target di prova (placeholder), solo per verificare che l'intera pipeline
-# (fit di k -> A_readout -> ampiezze CLEAR) funzioni end-to-end.
+
+# --- Readout drive ---------------------------------------------------------
+
+# Target steady-state photon number for the CLEAR pulse.
 n_target = 2.0
 
+# Fallback for the Stark slope k in n_photons = k*amp^2 + q, used only if
+# data/stark_fit_results.json is missing. Re-run stark_analysis.py with the
+# probe at f_drive_MHz above; a k measured at a different probe frequency (or
+# on a different resonator) puts the whole photon-number axis off scale.
+k_stark_fallback = 1.2201e4
 
-# The resonator is initially in the vacuum state.
+
+# --- CLEAR pulse shape -----------------------------------------------------
+# These are inputs to the Julia model, which writes the resulting segment
+# ratios (together with the durations they were computed for) into
+# parametri/clear_amplitudes.json. clear_config reads the durations back from
+# that JSON, so changing t_kick or t_readout here requires re-running
+# amplitudes_CLEAR.ipynb -- the ratios are only valid for the t_kick they
+# were solved for.
+
+# Ring-up / ring-down segment duration (~1/kappa; 150 ns in the paper).
+t_kick = 0.160
+
+# Steady-state readout segment. Steady state is reached in ~5/kappa ~ 1 us;
+# anything much longer only increases the excited-state loss during M1.
+t_readout = 1.0
+
+# Resonator initially in vacuum.
 alpha0_real = 0.0
 alpha0_imag = 0.0
 
 
-# Duration of the CLEAR ring-up and ring-down segments.
-# In the paper: t_kick = 150 ns = 0.150 μs, approximately 1/κ.
-t_kick = 0.240
+# --- Ramsey / acquisition --------------------------------------------------
 
+# Ramsey detuning, applied as a phase ramp on the second X90.
+ramsey_detuning_MHz = 6.0
 
-# Duration of the central readout segment.
-t_readout = 2.0
-
-
-
+nshots = 4096
+relaxation_time_us = 40.0
+t_buffer_ns = 200.0
